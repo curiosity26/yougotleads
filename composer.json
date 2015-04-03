@@ -1,0 +1,49 @@
+{
+  "name": "curiosity26/yougotleads_drupal",
+  "description": "A Drupal module extending the YouGotLeads PHP SDK",
+  "minimum-stability": "dev",
+  "prefer-stable": true,
+  "license": "proprietary",
+  "authors": [
+    {
+      "name": "Alex Boyce",
+      "email": "alex@sageagestrategies.com"
+    }
+  ],
+  "repositories": [
+    {
+      "type": "package",
+      "package": {
+        "name": "curiosity26/yougotleads",
+        "version": "v1.0-beta",
+        "source": {
+          "type": "git",
+          "url":  "https://github.com/curiosity26/YGL",
+          "reference": "v1.0-beta"
+        }
+      }
+    },
+    {
+      "type": "package",
+      "package": {
+        "name": "curiosity26/odataquery",
+        "version": "v1.0.1",
+        "source": {
+          "type": "git",
+          "url":  "https://github.com/curiosity26/ODataQuery-PHP",
+          "reference": "v1.0.1"
+        }
+      }
+    }
+  ],
+  "autoload": {
+    "psr-4": {
+      "ODataQuery\\": "vendor/curiosity26/odataquery/src",
+      "YGL\\": "vendor/curiosity26/yougotleads/src/YGL"
+    }
+  },
+  "require": {
+    "curiosity26/odataquery": ">=1.0.1",
+    "curiosity26/yougotleads": "@beta"
+  }
+}

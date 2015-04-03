@@ -1,0 +1,58 @@
+<?php
+/**
+ * Created by PhpStorm.
+ * User: alexboyce
+ * Date: 12/30/14
+ * Time: 2:51 PM
+ */
+
+function yougotleads_schema() {
+  $schema = array();
+
+  $schema['ygl_config'] = array(
+    'description' => t('The saved configuration settings to use with YGL'),
+    'fields' => array(
+      'cid' => array(
+        'type' => 'serial',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+      ),
+      'label' => array(
+        'type' => 'varchar',
+        'length' => 50,
+        'not null' => TRUE
+      ),
+      'machine_name' => array(
+        'type' => 'varchar',
+        'length' => 50,
+        'not null' => TRUE
+      ),
+      'accessToken' => array(
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => TRUE
+      ),
+      'propertyId' => array(
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE
+      ),
+      'referralSources' => array(
+        'type' => 'text',
+        'serialize' => TRUE,
+        'not null' => FALSE
+      )
+    ),
+    'primary key' => array('cid')
+  );
+
+  return $schema;
+}
+
+function yougotleads_update_7001(&$sandbox) {
+  db_add_field('ygl_config', 'referralSources', array(
+    'type' => 'text',
+    'serialize' => TRUE,
+    'not null' => FALSE
+  ));
+}

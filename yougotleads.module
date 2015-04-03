@@ -1,0 +1,446 @@
+<?php
+/**
+* @file
+* A description of what your module does.
+*/
+
+require_once __DIR__.'/vendor/autoload.php';
+
+use \YGL\YGLClient;
+use \YGL\Properties\YGLProperty;
+use \YGL\Leads\YGLLead;
+use \YGL\Tasks\YGLTask;
+use \YGL\Response\YGLResponse;
+
+/**
+ * Implements hook_menu().
+ */
+function yougotleads_menu() {
+  return array(
+    'admin/config/services/ygl' => array(
+      'title' => 'YouGotLeads Config',
+      'description' => t('Setting used to integrate with YGL.'),
+      'menu name' => 'administration',
+      'type' => MENU_NORMAL_ITEM,
+      'page callback' => 'yougotleads_admin_page',
+      'file' => 'yougotleads.admin.inc',
+      'access arguments' => array('administer yougotleads')
+    ),
+    'admin/config/services/ygl/list' => array(
+      'title' => 'List',
+      'menu name' => 'administration',
+      'type' => MENU_DEFAULT_LOCAL_TASK,
+      'weight' => -10,
+      'access arguments' => array('administer yougotleads')
+    ),
+    'admin/config/services/ygl/add' => array(
+      'title' => 'Add Configuration Settings',
+      'menu name' => 'administration',
+      'type' => MENU_LOCAL_TASK | MENU_LOCAL_ACTION,
+      'page callback' => 'drupal_get_form',
+      'page arguments' => array('yougotleads_config_form'),
+      'access arguments' => array('administer yougotleads'),
+      'file' => 'yougotleads.admin.inc'
+    ),
+    'admin/config/services/ygl/%yglconfig/edit' => array(
+      'title' => 'Edit Configuration Settings',
+      'menu name' => 'administration',
+      'type' => MENU_CALLBACK,
+      'page callback' => 'drupal_get_form',
+      'page arguments' => array('yougotleads_config_form', 4),
+      'access arguments' => array('administer yougotleads'),
+      'file' => 'yougotleads.admin.inc'
+    ),
+    'admin/config/services/ygl/%yglconfig/delete' => array(
+      'title' => 'Delete Configuration Settings',
+      'menu name' => 'administration',
+      'type' => MENU_CALLBACK,
+      'page callback' => 'drupal_get_form',
+      'page arguments' => array('yougotleads_config_delete_form', 4),
+      'access arguments' => array('administer yougotleads'),
+      'file' => 'yougotleads.admin.inc'
+    )
+  );
+}
+
+/**
+ * Implements hook_permission().
+ */
+function yougotleads_permission() {
+  return array(
+    'administer yougotleads' => array(
+      'title' => t('Administer YouGotLeads Settings'),
+      'description' => t('Specify the YGL login and property settings'),
+      'warning' => TRUE
+    )
+  );
+}
+
+function yglconfig_load($id) {
+  $clients = yougotleads_config_load(array('cid' => $id));
+  return array_shift($clients);
+}
+
+function yougotleads_config_load($conditions = FALSE) {
+  $query = db_select('ygl_config', 'ygl')
+    ->fields('ygl', array());
+
+  if (!!$conditions && is_array($conditions)) {
+    foreach ($conditions as $field => $cond) {
+      $query->condition($field, $cond);
+    }
+  }
+
+  $ret = $query->execute()->fetchAllAssoc('cid');
+  foreach ($ret as $config) {
+    if (!is_array($config->referralSources)) {
+      try {
+        $config->referralSources = unserialize($config->referralSources);
+      } catch (Exception $e) {
+        $config->referralSources = array();
+      }
+    }
+  }
+
+  return $ret;
+}
+
+/**
+ * Get the client from the configuration
+ * @param array $config
+ * @return \YGL\YGLClient
+ */
+function yougotleads_client($config) {
+  if (is_array($config)) {
+    $config = (object)$config;
+  }
+  if (isset($config->accessToken)) {
+    return new YGLClient($config->accessToken);
+  }
+  return new YGLClient($config->username, $config->password);
+}
+
+function yougotleads_set_path(\YGL\YGLJsonObject $obj, $path, $value) {
+  $paths = explode(':', $path);
+  $set = $value;
+  while ($field = array_pop($paths)) {
+    $set = ygl_set_field($field, $set);
+  }
+  $fields = array_keys($set);
+  $values = array_values($set);
+  $obj->{$fields[0]} = $values[0];
+}
+
+function ygl_set_field($field, $value) {
+  return array($field => $value);
+}
+
+// YGL Properties
+
+function yougotleads_get_properties(array $config) {
+  $client = yougotleads_client($config);
+  $limit = 100;
+  $page = 0;
+  $ret = array();
+  while ($properties = $client->getProperties(NULL, $limit, $page)) {
+    if ($properties instanceof YGLResponse) {
+      break;
+    }
+    if ($properties instanceof YGLProperty) {
+      $ret[] = $properties;
+      break;
+    }
+    $ret += $properties->collection;
+    ++$page;
+  }
+
+  return $ret;
+}
+
+function yougotleads_get_config_property($config) {
+  if (is_array($config)) {
+    $config = (object)$config;
+  }
+
+  $client = yougotleads_client($config);
+  return $client->getProperties($config->propertyId);
+}
+
+function yougotleads_properties_form_options(array $config) {
+  $properties = yougotleads_get_properties($config);
+  $options = array();
+
+  foreach ($properties as $property) {
+    $options[$property->id] = $property->name;
+  }
+
+  return $options;
+}
+
+// YGL Leads
+
+function yougotleads_lead_paths($set = 'all') {
+  $paths = array(
+    'Lead' => array(
+      'LeadId',
+      'ContactId',
+      'SecondaryContactId',
+      'AddedOn',
+      'Associate',
+      'BudgetMin',
+      'BudgetMax',
+      'CallCenterId',
+      'CreatedOn',
+      'DischargePlannerId',
+      'FamilyStatusId',
+      'FundingType',
+      'SecondFundingType',
+      'InquiryMethod',
+      'Ownership',
+      'Priority',
+      'UserName',
+      'Veteran',
+      'ReferralSources'
+    ),
+    'LeadResident' => array(
+      'LeadResident',
+      'LeadResident:Age',
+      'LeadResident:Bathing',
+      'LeadResident:CareLevel',
+      'LeadResident:CurrentLivingSituation',
+      'LeadResident:DateOfBirth',
+      'LeadResident:Dressing',
+      'LeadResident:Driving',
+      'LeadResident:Eating',
+      'LeadResident:EstimatedAdmitDate',
+      'LeadResident:Hair',
+      'LeadResident:HotButtons',
+      'LeadResident:IsDiabetic',
+      'LeadResident:Laundry',
+      'LeadResident:MaritalStatus',
+      'LeadResident:Meals',
+      'LeadResident:Medication',
+      'LeadResident:MemoryLoss',
+      'LeadResident:Physicial',
+      'LeadResident:Pref',
+      'LeadResident:TimeFrames',
+      'LeadResident:Toileting',
+      'LeadResident:UnitTypeId',
+      'LeadResident:Walking'
+    ),
+    'Notes' => array(
+      'Notes',
+      'Notes:Notes',
+      'Notes:UpdatedBy',
+      'Notes:UpdatedOn'
+    ),
+    'PrimaryContact' => array(
+      'PrimaryContact',
+      'PrimaryContact:ContactId',
+      'PrimaryContact:AddressId',
+      'PrimaryContact:Address',
+      'PrimaryContact:Address:AddressId',
+      'PrimaryContact:Address:Address1',
+      'PrimaryContact:Address:Address2',
+      'PrimaryContact:Address:AllowMailings',
+      'PrimaryContact:Address:City',
+      'PrimaryContact:Address:ContactPreference',
+      'PrimaryContact:Address:ContactTimePref',
+      'PrimaryContact:Address:Country',
+      'PrimaryContact:Address:Email',
+      'PrimaryContact:Address:Fax',
+      'PrimaryContact:Address:PhoneCell',
+      'PrimaryContact:Address:PhoneHome',
+      'PrimaryContact:Address:PhoneWork',
+      'PrimaryContact:Address:State',
+      'PrimaryContact:Address:UpdatedOn',
+      'PrimaryContact:Address:Zip',
+      'PrimaryContact:AllowContact',
+      'PrimaryContact:DateOfBirth',
+      'PrimaryContact:FirstName',
+      'PrimaryContact:LastName',
+      'PrimaryContact:Gender',
+      'PrimaryContact:IsInquirer',
+      'PrimaryContact:MaritalStatus',
+      'PrimaryContact:RelationToResident'
+    ),
+    'ResidentContact' => array(
+      'ResidentContact',
+      'ResidentContact:ContactId',
+      'ResidentContact:AddressId',
+      'ResidentContact:Address',
+      'ResidentContact:Address:AddressId',
+      'ResidentContact:Address:Address1',
+      'ResidentContact:Address:Address2',
+      'ResidentContact:Address:AllowMailings',
+      'ResidentContact:Address:City',
+      'ResidentContact:Address:ContactPreference',
+      'ResidentContact:Address:ContactTimePref',
+      'ResidentContact:Address:Country',
+      'ResidentContact:Address:Email',
+      'ResidentContact:Address:Fax',
+      'ResidentContact:Address:PhoneCell',
+      'ResidentContact:Address:PhoneHome',
+      'ResidentContact:Address:PhoneWork',
+      'ResidentContact:Address:State',
+      'ResidentContact:Address:UpdatedOn',
+      'ResidentContact:Address:Zip',
+      'ResidentContact:AllowContact',
+      'ResidentContact:DateOfBirth',
+      'ResidentContact:FirstName',
+      'ResidentContact:LastName',
+      'ResidentContact:Gender',
+      'ResidentContact:IsInquirer',
+      'ResidentContact:MaritalStatus',
+      'ResidentContact:RelationToResident'
+    ),
+    'SecondaryContact' => array(
+      'SecondaryContact',
+      'SecondaryContact:ContactId',
+      'SecondaryContact:AddressId',
+      'SecondaryContact:Address',
+      'SecondaryContact:Address:AddressId',
+      'SecondaryContact:Address:Address1',
+      'SecondaryContact:Address:Address2',
+      'SecondaryContact:Address:AllowMailings',
+      'SecondaryContact:Address:City',
+      'SecondaryContact:Address:ContactPreference',
+      'SecondaryContact:Address:ContactTimePref',
+      'SecondaryContact:Address:Country',
+      'SecondaryContact:Address:Email',
+      'SecondaryContact:Address:Fax',
+      'SecondaryContact:Address:PhoneCell',
+      'SecondaryContact:Address:PhoneHome',
+      'SecondaryContact:Address:PhoneWork',
+      'SecondaryContact:Address:State',
+      'SecondaryContact:Address:UpdatedOn',
+      'SecondaryContact:Address:Zip',
+      'SecondaryContact:AllowContact',
+      'SecondaryContact:DateOfBirth',
+      'SecondaryContact:FirstName',
+      'SecondaryContact:LastName',
+      'SecondaryContact:Gender',
+      'SecondaryContact:IsInquirer',
+      'SecondaryContact:MaritalStatus',
+      'SecondaryContact:RelationToResident'
+    )
+  );
+
+  if ($set == 'all') {
+    foreach ($paths as $group => $pathset) {
+      $paths[$group] = drupal_map_assoc($pathset);
+    }
+    return $paths;
+  }
+  return isset($set) ? drupal_map_assoc($paths[$set]) : $paths;
+}
+
+function yougotleads_get_leads(YGLProperty $property,
+  $id = NULL, $limit = 20, $page = 0) {
+  return $property->getLeads($id, $limit, $page);
+}
+
+function yougotleads_add_lead(YGLProperty $property, $lead) {
+  if (!$lead instanceof YGLLead) {
+    $lead = new YGLLead((array)$lead);
+  }
+  return $property->addLead($lead);
+}
+
+function yougotleads_set_lead_path(YGLLead $lead, $path, $value) {
+  yougotleads_set_path($lead, $path, $value);
+}
+
+// YGL Tasks
+
+function yougotleads_task_paths() {
+  return drupal_map_assoc(array(
+    'TaskId',
+    'PropertyId',
+    'LeadId',
+    'ContactId',
+    'PriorityId',
+    'FollowupDate', // Required for post
+    'TaskTitle', // Required for post
+    'Status',
+    'TaskTypeId', // Required for post
+    'TaskType',
+    'CreatedOn',
+    'CreatedBy',
+    'ChildTaskTypeId',
+    'ChildTaskType',
+    'IsGroupTask',
+    'CompletedDate',
+    'MadeContactMode',
+    'UpdatedOn',
+    'UpdatedBy',
+    'IsAllDay',
+    'Duration',
+    'TimeZoneId',
+    'OwnerId',
+    'OwnderUsername'
+  ));
+}
+
+function yougotleads_get_tasks(YGLLead $lead, $id = NULL) {
+   return $lead->getTasks($id);
+}
+
+function yougotleads_add_task(YGLLead $lead, $task) {
+  if (!$task instanceof YGLTask) {
+    $task = new YGLTask((array)$task);
+  }
+  return $lead->addTask($task);
+}
+
+function yougotleads_set_task_path(YGLTask $task, $path, $value) {
+  yougotleads_set_path($task, $path, $value);
+}
+
+// YGL Users
+
+function yougotleads_users($config) {
+  $users = &drupal_static(__FUNCTION__);
+  if (null === $users) {
+    $property = yougotleads_get_config_property($config);
+    $users = $property->getUsers();
+  }
+  return $users;
+}
+
+// YGL Referral Sources
+
+function yougotleads_referral_sources($config) {
+  $ret = &drupal_static(__FUNCTION__, array());
+  if (empty($ret)) {
+    $property = yougotleads_get_config_property($config);
+    $sources = $property->getReferralSources();
+
+    if ($sources instanceof \YGL\ReferralSource\Collection\YGLReferralSourceCollection) {
+      foreach ($sources as $source) {
+        $ret[$source->LeadSourceId] = $source->LeadSourceName;
+      }
+    }
+  }
+
+  return $ret;
+}
+
+function yougotleads_set_referral_sources($config, YGLLead $lead) {
+  $sources = $config->referralSources;
+
+  if ($sources instanceof \YGL\ReferralSource\Collection\YGLReferralSourceCollection) {
+    $lead->setReferralSources($sources);
+  }
+  elseif (is_array($sources)) {
+    foreach ($sources as $sid) {
+      if ($sid instanceof \YGL\ReferralSource\YGLReferralSource) {
+        $source = $sid;
+      }
+      else {
+        $source = $lead->getProperty()->getReferralSources($sid);
+      }
+      $lead->addReferralSource($source);
+    }
+  }
+}

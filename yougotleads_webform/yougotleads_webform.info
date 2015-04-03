@@ -1,0 +1,7 @@
+name = You've Got Leads Webform
+description = Interfaces Webforms with YGL
+core = 7.x
+version = 7.x-1.0
+group = Contact Management Resources
+
+dependencies[] = yougotleads

@@ -1,0 +1,32 @@
+<?php
+
+function yougotleads_webform_schema() {
+  $schema = array(
+    'ygl_webform' => array(
+      'fields' => array(
+        'id' => array(
+          'type' => 'serial',
+          'unsigned int' => TRUE,
+          'not null' => TRUE
+        ),
+        'nid' => array(
+          'type' => 'int',
+          'unsigned int' => TRUE,
+          'not null' => TRUE
+        ),
+        'ysid' => array(
+          'type' => 'int',
+          'unsigned int' => TRUE,
+          'not null' => TRUE
+        )
+      ),
+      'primary key' => array(
+        'id'
+      ),
+      'unique keys' => array(
+        'nid_id' => array('nid', 'id')
+      )
+    )
+  );
+  return $schema;
+}

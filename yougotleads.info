@@ -1,0 +1,8 @@
+name = You've Got Leads
+description = Interfaces Drupal with YGL
+core = 7.x
+version = 7.x-1.0
+configure = admin/config/services/ygl
+group = Contact Management Resources
+
+files[] = vendor/autoload.php

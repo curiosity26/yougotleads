@@ -1,0 +1,40 @@
+{
+    "_readme": [
+        "This file locks the dependencies of your project to a known state",
+        "Read more about it at http://getcomposer.org/doc/01-basic-usage.md#composer-lock-the-lock-file",
+        "This file is @generated automatically"
+    ],
+    "hash": "798892fd9be82083bb4b8311875745be",
+    "packages": [
+        {
+            "name": "curiosity26/odataquery",
+            "version": "v1.0.1",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/curiosity26/ODataQuery-PHP",
+                "reference": "v1.0.1"
+            },
+            "type": "library"
+        },
+        {
+            "name": "curiosity26/yougotleads",
+            "version": "v1.0-beta",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/curiosity26/YGL",
+                "reference": "v1.0-beta"
+            },
+            "type": "library"
+        }
+    ],
+    "packages-dev": [],
+    "aliases": [],
+    "minimum-stability": "dev",
+    "stability-flags": {
+        "curiosity26/yougotleads": 10
+    },
+    "prefer-stable": true,
+    "prefer-lowest": false,
+    "platform": [],
+    "platform-dev": []
+}

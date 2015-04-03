@@ -1,0 +1,189 @@
+<?php
+
+/* Node form alter */
+
+function yougotleads_webform_form_alter(&$form, $form_state, $form_id) {
+  if (user_access('configure ygl webform') && isset($form['#node']->type)
+    && $form_id == $form['#node']->type . '_node_form'
+    && variable_get('webform_node_' . $form['#node']->type, FALSE)) {
+    $node = $form['#node'];
+    $configs = yougotleads_config_load();
+    $options = array();
+    foreach ($configs as $cid => $config) {
+      $options[$cid] = $config->label;
+    }
+
+    $form['ygl_config'] = array(
+      '#type' => 'fieldset',
+      '#group' => 'additional_settings',
+      '#collapsible' => TRUE,
+      '#title' => t('YGL Integration')
+    );
+
+    $form['ygl_config']['ygl'] = array(
+      '#type' => 'checkbox',
+      '#title' => t('Send results from this form to YGL'),
+      '#default_value' => (isset($node->ygl) && $node->ygl == 1)
+    );
+
+    $form['ygl_config']['ygl_settings'] = array(
+      '#type' => 'select',
+      '#title' => t('YGL Settings'),
+      '#description' => t('Choose which leads database results will be saved in.'),
+      '#options' => $options,
+      '#states' => array(
+        'visible' => array(
+          ':input[name="ygl"]' => array('checked' => TRUE)
+        )
+      ),
+      '#default_value' => isset($node->ygl_settings) ? $node->ygl_settings : NULL
+    );
+
+    #$form['#submit'][] = 'ygl_node_form_submit';
+  }
+}
+
+/** Node Submit */
+
+function yougotleads_webform_node_submit($node, $form, &$form_state) {
+  if (user_access('configure ygl webform')
+    && in_array($node->type, webform_node_types())) {
+
+    if ($node->ygl == TRUE) {
+      ygl_set_webform_settings($node);
+    }
+    else {
+      ygl_delete_webform_settings($node);
+    }
+  }
+}
+
+/* Node Load */
+
+function yougotleads_webform_node_load($nodes, $types) {
+  $query = db_select('ygl_webform', 'yw')->fields('yw', array('id', 'nid'))
+    ->condition('yw.nid', array_keys($nodes))->execute();
+  $settings = $query->fetchAllAssoc('nid', PDO::FETCH_ASSOC);
+
+  if (!empty($settings)) {
+    foreach ($settings as $nid => $setting) {
+      $nodes[$nid]->ygl = 1;
+      $nodes[$nid]->ygl_settings = $setting['id'];
+    }
+  }
+}
+
+/* Webform Settings CRUD */
+
+function ygl_set_webform_settings($node) {
+  $save = array(
+    'nid' => $node->nid,
+    'ysid' => $node->ygl_settings
+  );
+
+  $query = db_select('ygl_webform', 'yw')
+    ->fields('yw', array('id'))
+    ->condition('yw.nid', $node->nid)
+    ->execute();
+
+  $id = $query->fetchAssoc();
+
+  if (!empty($id)) {
+    $save['id'] = $id['id'];
+    $saved = drupal_write_record('ygl_webform', $save, array('id'));
+  }
+  else {
+    $saved = db_insert('ygl_webform')
+      ->fields(array('nid', 'ysid'), $save)
+      ->execute();
+  }
+
+  if ($saved === FALSE) {
+    drupal_set_message('There was an error committing YGL settings to the webform', 'error');
+  }
+
+}
+
+function ygl_get_settings_from_webform($node) {
+  $configs = yougotleads_config_load(array('cid' => $node->ygl_settings));
+  return array_shift($configs);
+}
+
+function ygl_delete_webform_settings($node) {
+  return db_delete('ygl_webform')->condition('nid', $node->nid)->execute();
+}
+
+/** Modify Component Form */
+
+function yougotleads_form_webform_component_edit_form_alter(&$form,
+  &$form_state, $form_id) {
+  $node = $form['#node'];
+  $default = !empty($form_state['values']) ? $form_state['values']['extra']['ygl']['ygl_field'] : 0;
+  $clone = $form['clone']['#value'];
+  $component = !empty($form['cid']) && isset($form['cid']['#value']) && $form['cid']['#value'] > 0 ?
+    $node->webform['components'][$form['cid']['#value']] : NULL;
+  if (empty($form_state['values']) && !$clone && isset($component)) {
+    $default = $component['extra']['ygl']['ygl_field'];
+  }
+
+  if ($node->ygl == TRUE) {
+    $fields = yougotleads_lead_paths();
+    array_unshift($fields, '-- Not Set --');
+
+    if ($fields) {
+      $extra = &$form['extra'];
+      $extra['ygl'] = array(
+        '#type' => 'fieldset',
+        '#title' => t('You\'ve Got Leads'),
+        '#collapsible' => TRUE,
+        '#collapse' => FALSE
+      );
+
+      $extra['ygl']['ygl_field'] = array(
+        '#type' => 'select',
+        '#title' => t('Map to YGL Field'),
+        '#default_value' => $default,
+        '#options' => $fields
+      );
+    }
+  }
+}
+
+/** Webform Submit */
+
+function yougotleads_webform_submission_insert($node, $submission) {
+  if ($node->ygl) {
+    $settings = ygl_get_settings_from_webform($node);
+    $client = yougotleads_client($settings);
+    $property = yougotleads_get_config_property($settings);
+    if (!empty($settings) && $property instanceof \YGL\Properties\YGLProperty) {
+
+      $lead = new \YGL\Leads\YGLLead();
+      $lead->setProperty($property);
+      yougotleads_set_referral_sources($settings, $lead);
+
+      foreach ($submission->data as $cid => $data) {
+        $component = $node->webform['components'][$cid];
+        if (!isset($component['extra']['ygl']['ygl_field']) ||
+          !is_string($component['extra']['ygl']['ygl_field'])) {
+          continue;
+        }
+
+        $path = $component['extra']['ygl']['ygl_field'];
+        $value = $data[0];
+        yougotleads_set_lead_path($lead, $path, $value);
+      }
+      $response = $client->addLead($property, $lead);
+
+      if ($response instanceof \YGL\Leads\YGLLead) {
+        watchdog('YGL Webform', "Successfully added submission id @sid to the Yardi database. !link.",
+          array('@sid' => $submission->sid,
+                '!link' => l('View submission', 'node/'.$node->nid.'/submission/'.$submission->sid)), WATCHDOG_INFO);
+      }
+      else {
+        watchdog('YGL Webform', "Failed to add new lead to Yardi: @message",
+          array('@message' => $response->getBody()), WATCHDOG_ERROR);
+      }
+    }
+  }
+}
